@@ -1,0 +1,12 @@
+# data, weights and run outputs
+data/
+ISTD*/
+checkpoints/
+*.pt
+*.pth
+outputs/
+# python / notebooks
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+.DS_Store

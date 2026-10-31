@@ -1,68 +1,65 @@
-# ShadowFix AI — Intelligent Shadow Removal & Image Restoration
+# ShadowFix: Shadow Removal for Real-World Images
 
-A computer vision capstone investigating how **U-Net-based image restoration** removes cast shadows while preserving scene details. This project compares RGB-only, residual, and mask-guided models on the ISTD shadow removal benchmark and includes a Gradio demonstration.
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white) ![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?logo=opencv&logoColor=white) ![Gradio](https://img.shields.io/badge/Gradio-F97316?logo=gradio&logoColor=white) ![Dataset](https://img.shields.io/badge/dataset-ISTD-blue)
+
+Shadows hide texture, shift color and create false edges that confuse downstream vision models. **ShadowFix** trains U-Net restoration models on the ISTD benchmark and puts the best one behind a Gradio app with automatic and paint-guided modes.
+
+![Automatic shadow removal: original vs. restored](assets/automatic_before_after.png)
 
 ## Results
 
-Evaluation was reported on **540 ISTD test images** at 256 × 256 resolution.
+540 ISTD test images at 256 × 256 ([raw numbers](assets/results/model_comparison.csv)).
 
-| Method | PSNR (dB) ↑ | SSIM ↑ | Shadow PSNR (dB) ↑ |
-|---|---:|---:|---:|
-| **Mask-guided U-Net** | **30.189** | **0.9514** | **26.303** |
-| RGB U-Net baseline | 27.176 | 0.9324 | 24.097 |
-| RGB residual (50 epochs) | 26.589 | 0.9268 | 25.062 |
-| RGB residual (continued) | 26.428 | 0.9268 | 25.027 |
+| Model | PSNR (dB) ↑ | SSIM ↑ | Shadow PSNR ↑ | Non-shadow PSNR ↑ |
+|---|---:|---:|---:|---:|
+| Shadow input (no correction) | 20.56 | – | – | – |
+| **Mask-guided U-Net** | **30.19** | **0.951** | **26.30** | **31.89** |
+| RGB U-Net baseline | 27.18 | 0.932 | 24.10 | 28.55 |
+| RGB residual U-Net (50 epochs) | 26.59 | 0.927 | 25.06 | 27.22 |
+| RGB residual U-Net (continued) | 26.43 | 0.927 | 25.03 | 27.04 |
 
-*These metrics are reported in the capstone presentation and have not been independently re-run for this repository.*
+- **+9.6 dB** over the raw shadow input, and **+3.0 dB** overall and **+2.2 dB** inside shadows compared with the RGB baseline.
+- **Why we split PSNR by region:** the residual models score *higher inside shadows* but *1.3 dB lower everywhere else*, which means they over-correct pixels that were never shadowed. A single averaged PSNR hides that trade-off.
 
-## Project visuals
+<p align="center">
+  <img src="assets/results/01_overall_psnr_comparison.png" width="49%" alt="Overall PSNR by model"/>
+  <img src="assets/results/04_shadow_vs_nonshadow.png" width="49%" alt="Shadow vs non-shadow PSNR"/>
+</p>
+<p align="center">
+  <img src="assets/results/07_training_psnr_curves.png" width="49%" alt="Validation PSNR during training"/>
+  <img src="assets/results/05_traditional_vs_deep_learning.png" width="49%" alt="Traditional correction vs deep learning"/>
+</p>
 
-### Input
-![Shadowed input](assets/shadow_input.png)
+## Demo app
 
-### Automatic shadow removal — before and after
-![Automatic mode](assets/automatic_before_after.png)
+| Automatic mode | Guided mode |
+|---|---|
+| Upload a photo. The model estimates the shadow region (LAB color-space luminance plus connected-component filtering in OpenCV) and restores it. | Paint over the shadow and pick a restoration strength. The app blends the restored region back into the original and shows the mask, coverage and before/after views. |
+| ![Wall example](assets/automatic_wall_before_after.png) | ![Guided interface](assets/guided_mask_interface.png) |
 
-### Guided restoration
-![Guided result](assets/guided_before_after.png)
+## How it works
 
-![Mask-guided interface](assets/guided_mask_interface.png)
+- **Data:** ISTD triplets (shadow image, shadow mask, shadow-free target): 1,197 train / 133 validation / 540 test.
+- **Models:** U-Net encoder–decoder with skip connections (~7.76M parameters, base width 32). The mask-guided variant takes RGB + mask as 4 input channels; the residual variants predict a correction added to the input.
+- **Loss:** region-weighted L1, `L = w_s · M ⊙ |P − G| + w_n · (1 − M) ⊙ |P − G|`, weighting shadow pixels more.
+- **Training:** PyTorch with mixed precision (AMP) on an NVIDIA T4, batch size 8, 256 × 256 inputs. Checkpoints go to Google Drive so runs survive Colab resets.
+- **Evaluation:** PSNR, SSIM, and shadow / non-shadow PSNR, compared against a classical illumination-correction baseline.
 
-## Approach
+## Run it
 
-- **Data:** ISTD paired shadow images, shadow masks, and shadow-free ground truth.
-- **Architecture:** U-Net-style encoder–decoder, approximately 7.76M parameters in the reported configuration.
-- **Training:** PyTorch; 256 × 256 inputs; batch size 8; mixed precision on Tesla T4.
-- **Model variants:** RGB U-Net, residual RGB U-Net, mask-guided U-Net.
-- **Evaluation:** PSNR, SSIM, and shadow/non-shadow regional PSNR.
-- **Demo:** Gradio automatic and guided shadow restoration.
+1. Open [`notebooks/shadow_removal_colab.ipynb`](notebooks/shadow_removal_colab.ipynb) in Google Colab with a GPU runtime.
+2. Download the [ISTD dataset](https://github.com/DeepInsight-PCALab/ST-CGAN) and point `DATA_ROOT` in the notebook at it.
+3. Run the cells in order: dataset check → training → evaluation → Gradio app.
 
-## Repository layout
+Install locally with `pip install -r requirements.txt`. Trained checkpoints and the dataset are not stored in this repository.
 
-```text
-ShadowFix/
-├── assets/
-│   ├── shadow_input.png
-│   ├── automatic_before_after.png
-│   ├── guided_before_after.png
-│   └── guided_mask_interface.png
-├── notebooks/
-│   └── shadow_removal_colab.ipynb
-├── requirements.txt
-├── .gitignore
-└── README.md
-```
+## Limitations and next steps
 
-## How to run
+- Training at 256 × 256 can soften fine, high-resolution texture. Next: patch-based or full-resolution inference.
+- Guided-mode quality depends on the mask. Next: a learned shadow-detection head trained jointly.
+- PSNR and SSIM don't fully capture perceptual realism. Next: LPIPS and a small user study.
+- Phone photos differ from ISTD. Next: fine-tune on in-the-wild shadow datasets.
 
-Open the notebook in Google Colab with a GPU runtime. The notebook references an additional project ZIP and checkpoints, which must be supplied separately, along with the ISTD dataset. Adjust Google Drive and local data paths before running.
+## Team
 
-## Limitations
-
-On images unlike ISTD, shadow traces may remain, very dark regions may appear washed out, and hard edges can introduce halos or color shifts. Strong correction can also affect non-shadow regions.
-
----
-
-**Project showcase:** Odra Bira
-
-*The accompanying presentation file is intentionally excluded from this repository.*
+University at Buffalo capstone by **Odra Bira**, Pranay Lachuluri and Rohith Bharadwaj.
